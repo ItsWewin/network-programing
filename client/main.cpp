@@ -25,6 +25,9 @@ void send_data(int sockfd) {
   const char *cp;
   cp = query;
   size_t remaining = strlen(query);
+
+  cout << "remaining" << remaining << endl;
+
   while (remaining) {
     int n_written = send(sockfd, cp, remaining, 0);
     cout << "send into buffer" << n_written << endl;
@@ -54,14 +57,14 @@ int main(int argc, char **argv) {
   bzero(&servaddr, sizeof(servaddr));
   servaddr.sin_family = AF_INET;
   servaddr.sin_port = htons(62333);
-  inet_pton(AF_INET, argv[1], &servaddr.sin_port);
+
+  inet_pton(AF_INET, argv[1], &servaddr.sin_addr);
 
   cout << "ip " << argv[1] << endl;
 
   int connect_rt = connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
   if (connect_rt < 0) {
-    cout << "connect failed"
-     << endl;
+    cout << "connect failed " << connect_rt << endl;
   } else {
     cout << "connect succeed" << endl;
   }

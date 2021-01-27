@@ -4,3 +4,4 @@ client/.vscode
 server/.vscode
 client/build
 server/build
+build
