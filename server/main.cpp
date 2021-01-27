@@ -36,8 +36,6 @@ void read_data(int sockfd) {
 
   int time = 0;
   for (;;) {
-    cout << "block in read" << endl;
-
     if ((n = readn(sockfd, buf, 1024)) == 0) {
       return;
     }
@@ -46,7 +44,7 @@ void read_data(int sockfd) {
 
     cout << "1K read for: " << time << endl;
 
-    usleep(1000);
+    usleep(10000);
   }
 }
 
