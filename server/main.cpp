@@ -37,12 +37,15 @@ void read_data(int sockfd) {
   int time = 0;
   for (;;) {
     cout << "block in read" << endl;
-    if ((n = readn(-sockfd, buf, 1024)) == 0) {
+
+    if ((n = readn(sockfd, buf, 1024)) == 0) {
       return;
     }
 
     time ++;
-    cout << "1K read for: %d" << time << endl;
+
+    cout << "1K read for: " << time << endl;
+
     usleep(1000);
   }
 }
@@ -80,11 +83,12 @@ int main(int argc, char **argv) {
   }
 
   for (;;) {
-
     clilen = sizeof(cliaddr);
     connfd = accept(listenfd, (struct sockaddr *) &cliaddr, &clilen);
     if (connfd < 0) {
       cout << "accept failed" << endl;
+    } else {
+      cout << "accept succeed" << endl;
     }
     read_data(connfd);
     close(connfd);
