@@ -7,89 +7,48 @@
 #include <string.h>
 using namespace std;
 
-size_t readn(int fd, char *buffer, size_t size) {
-  char *buffer_pointer = buffer;
-  int length = size;
+#define SERV_PORT 63323
+#define MAXLINE 4096
 
-  while ( length > 0) {
-    int result = read(fd, buffer_pointer, length);
+static int count = 10;
 
-    if (result < 0) {
-      if (errno == EINTR) {
-        continue;
-      } else if (result == 0) {
-        break;
-      }
-    }
-
-    length -= result;
-    buffer_pointer += result;
-  }
-
-  return (size - length);
-}
-
-// 循环读取数据，一次读取 1K
-void read_data(int sockfd) {
-  size_t n;
-  char buf[1024];
-
-  int time = 0;
-  for (;;) {
-    if ((n = readn(sockfd, buf, 1024)) == 0) {
-      return;
-    }
-
-    time ++;
-
-    cout << "1K read for: " << time << endl;
-
-    usleep(10000);
-  }
+static void recvfrom_int(int signo) {
+  cout << "received " << ::count << "datagrams" << endl;
+  exit(0);
 }
 
 int main(int argc, char **argv) {
+  int socket_fd;
+  socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
 
-  cout << "servivce" << endl;
-
-  int listenfd, connfd;
-  socklen_t clilen;
-  struct sockaddr_in cliaddr, servaddr;
-
-  listenfd = socket(AF_INET, SOCK_STREAM, 0);
-
-  bzero(&servaddr, sizeof(servaddr));
-  servaddr.sin_family = AF_INET;
-  servaddr.sin_addr.s_addr = INADDR_ANY;
-  // servaddr.sin_addr.s_addr = htonl("192.168.1.100");
-  servaddr.sin_port = htons(62333);
-
-  int bindResult = ::bind(listenfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
-  if (bindResult < 0) {
-    perror("bind failed");
-    exit(EXIT_FAILURE);
-  } else {
-    cout << "bind succeed" << endl;
-  }
+  struct sockaddr_in server_addr;
+  bzero(&server_addr, sizeof(server_addr));
   
-  int listenResult = listen(listenfd, 1024);
-  if (listenResult < 0) {
-    perror("listen failed");
-    exit(EXIT_FAILURE);
-  } else {
-    cout << "listen succeed" << endl;
-  }
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  server_addr.sin_port = htons(SERV_PORT);
 
+  bind(socket_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+
+  socklen_t client_len;
+  char message[4096];
+  int count = 0;
+
+  signal(SIGINT, recvfrom_int);
+
+  struct sockaddr_in client_addr;
+  client_len = sizeof(client_addr);
   for (;;) {
-    clilen = sizeof(cliaddr);
-    connfd = accept(listenfd, (struct sockaddr *) &cliaddr, &clilen);
-    if (connfd < 0) {
-      cout << "accept failed" << endl;
-    } else {
-      cout << "accept succeed" << endl;
-    }
-    read_data(connfd);
-    close(connfd);
+    int n = recvfrom(socket_fd, message, MAXLINE, 0, (struct sockaddr *) &client_addr, &client_len);
+    message[n] = 0;
+    printf("recevied %d bytes: %s\n", n, message);
+
+    char send_line[MAXLINE];
+    sprintf(send_line, "Hi, %s", message);
+
+    sendto(socket_fd, send_line, strlen(send_line), 0, (struct sockaddr *) &client_addr, client_len);
+
+    count ++;
   }
 }
- 
+
