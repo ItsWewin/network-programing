@@ -1,54 +1,83 @@
 #include <iostream>
-#include <unistd.h> 
 #include <stdio.h> 
+#include <stdlib.h>
+#include <unistd.h> 
 #include <sys/socket.h> 
-#include <stdlib.h> 
-#include <netinet/in.h> 
+#include <sys/un.h>
 #include <string.h>
 using namespace std;
 
-#define SERV_PORT 63323
+#define LISTENQ 1024
+#define BUFFER_SIZE 4096
 #define MAXLINE 4096
 
-static int count = 10;
-
-static void recvfrom_int(int signo) {
-  cout << "received " << ::count << "datagrams" << endl;
-  exit(0);
-}
-
 int main(int argc, char **argv) {
-  int socket_fd;
-  socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (argc != 2) {
+    perror("usage: unixstreamserver <local_path>");
+    exit(0);
+  }
 
-  struct sockaddr_in server_addr;
-  bzero(&server_addr, sizeof(server_addr));
-  
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  server_addr.sin_port = htons(SERV_PORT);
+  int listenfd, connfd;
+  socklen_t clilen;
+  struct sockaddr_un cliaddr, servaddr;
 
-  bind(socket_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+  listenfd = socket(AF_LOCAL, SOCK_STREAM, 0);
+  if (listenfd < 0) {
+    perror("socket create failed");
+    exit(EXIT_FAILURE);
+  }
 
-  socklen_t client_len;
-  char message[4096];
-  int count = 0;
+  char *local_path = argv[1];
+  unlink(local_path);
+  bzero(&servaddr, sizeof(servaddr));
+  servaddr.sun_family = AF_LOCAL;
+  strcpy(servaddr.sun_path, local_path);
 
-  signal(SIGINT, recvfrom_int);
+  if (::bind(listenfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
+    perror("bind failed");
+    exit(EXIT_FAILURE);
+  }
 
-  struct sockaddr_in client_addr;
-  client_len = sizeof(client_addr);
-  for (;;) {
-    int n = recvfrom(socket_fd, message, MAXLINE, 0, (struct sockaddr *) &client_addr, &client_len);
-    message[n] = 0;
-    printf("recevied %d bytes: %s\n", n, message);
+  if (listen(listenfd, LISTENQ) < 0) {
+    perror("listen failed");
+    exit(EXIT_FAILURE);
+  }
+
+  clilen = sizeof(cliaddr);
+  if ((connfd = accept(listenfd, (struct sockaddr*) &cliaddr, &clilen)) < 0) {
+    if (errno == EINTR) {
+      perror("accept failed");
+      exit(EXIT_FAILURE);
+    } else {
+      perror("accept failed");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  char buf[BUFFER_SIZE];
+
+  while(1) {
+    bzero(buf, sizeof(buf));
+    if (read(connfd, buf, BUFFER_SIZE) == 0) {
+      printf("client quit");
+      break;
+    }
+
+    printf("Receive: %s", buf);
 
     char send_line[MAXLINE];
-    sprintf(send_line, "Hi, %s", message);
+    sprintf(send_line, "Hi, %s", buf);
 
-    sendto(socket_fd, send_line, strlen(send_line), 0, (struct sockaddr *) &client_addr, client_len);
+    int nbytes = sizeof(send_line);
 
-    count ++;
+    if (write(connfd, send_line, nbytes) != nbytes) {
+      perror("write error");
+      exit(EXIT_FAILURE);
+    }
   }
-}
 
+  close(listenfd);
+  close(connfd);
+
+  exit(EXIT_SUCCESS);
+}
