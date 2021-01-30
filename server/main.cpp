@@ -13,71 +13,53 @@ using namespace std;
 
 int main(int argc, char **argv) {
   if (argc != 2) {
-    perror("usage: unixstreamserver <local_path>");
-    exit(0);
+    perror("unage: unixdateserver <local_path>");
+    exit(EXIT_FAILURE);
   }
 
-  int listenfd, connfd;
-  socklen_t clilen;
-  struct sockaddr_un cliaddr, servaddr;
-
-  listenfd = socket(AF_LOCAL, SOCK_STREAM, 0);
-  if (listenfd < 0) {
+  int socket_fd;
+  socket_fd = socket(AF_LOCAL, SOCK_DGRAM, 0);
+  if (socket_fd < 0) {
     perror("socket create failed");
     exit(EXIT_FAILURE);
   }
 
+  struct sockaddr_un servaddr;
   char *local_path = argv[1];
   unlink(local_path);
   bzero(&servaddr, sizeof(servaddr));
   servaddr.sun_family = AF_LOCAL;
   strcpy(servaddr.sun_path, local_path);
 
-  if (::bind(listenfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
-    perror("bind failed");
+  if (::bind(socket_fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
+    perror("build failed");
     exit(EXIT_FAILURE);
-  }
-
-  if (listen(listenfd, LISTENQ) < 0) {
-    perror("listen failed");
-    exit(EXIT_FAILURE);
-  }
-
-  clilen = sizeof(cliaddr);
-  if ((connfd = accept(listenfd, (struct sockaddr*) &cliaddr, &clilen)) < 0) {
-    if (errno == EINTR) {
-      perror("accept failed");
-      exit(EXIT_FAILURE);
-    } else {
-      perror("accept failed");
-      exit(EXIT_FAILURE);
-    }
   }
 
   char buf[BUFFER_SIZE];
+  struct sockaddr_un client_addr;
+  socklen_t client_len = sizeof(client_addr);
 
-  while(1) {
+  while (1) {
     bzero(buf, sizeof(buf));
-    if (read(connfd, buf, BUFFER_SIZE) == 0) {
+    if (recvfrom(socket_fd, buf, BUFFER_SIZE, 0, (struct sockaddr *) &client_addr, &client_len) == 0) {
       printf("client quit");
       break;
     }
 
-    printf("Receive: %s", buf);
+    printf("Recevie: %s\n", buf);
 
     char send_line[MAXLINE];
-    sprintf(send_line, "Hi, %s", buf);
+    bzero(send_line, MAXLINE);
+    printf(send_line, "Hi: %s", buf);
 
-    int nbytes = sizeof(send_line);
-
-    if (write(connfd, send_line, nbytes) != nbytes) {
-      perror("write error");
+    size_t nbytes = strlen(send_line);
+    if (sendto(socket_fd, send_line, nbytes, 0, (struct sockaddr *) &client_addr, client_len) != nbytes) {
+      perror("sendto error");
       exit(EXIT_FAILURE);
     }
   }
 
-  close(listenfd);
-  close(connfd);
-
-  exit(EXIT_SUCCESS);
+  close(socket_fd);
+  exit(0);
 }
