@@ -1,75 +1,100 @@
-#include<iostream>
-#include <unistd.h> 
-#include <stdio.h> 
-#include <sys/socket.h> 
-#include <stdlib.h> 
-#include <netinet/in.h> 
-#include <arpa/inet.h> 
+#include <iostream>
+#include <sys/socket.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/select.h>
+#include <arpa/inet.h>
+
 using namespace std;
 
-#define MESSAGE_SIZE 102400
-
-void send_data(int sockfd) {
-
-  cout << "send data" << endl;
-
-  char *query;
-  query = (char *)malloc(MESSAGE_SIZE);
-
-  for (int i = 0; i < MESSAGE_SIZE; i++) {
-    query[i] = 'a';
-  }
-  query[MESSAGE_SIZE] = '\0';
-
-  const char *cp;
-  cp = query;
-  size_t remaining = strlen(query);
-
-  cout << "remaining" << remaining << endl;
-
-  while (remaining) {
-    int n_written = send(sockfd, cp, remaining, 0);
-    cout << "send into buffer" << n_written << endl;
-    if (n_written <= 0) {
-      perror("send failed");
-      return;
-    }
-    remaining -= n_written;
-    cp += n_written;
-  }
-
-  return;
-}
+#define SERV_PORT 63330
+#define MAXLINE 4096
 
 int main(int argc, char **argv) {
-  cout << "client main" << endl;
-
-  int sockfd;
-  struct sockaddr_in servaddr;
-
   if (argc != 2) {
-    perror("usage: tcpclient <IPaddress>");
+    perror("usage: graceclient <IPaddress>");
+    exit(EXIT_FAILURE);
   }
 
-  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  int socket_fd;
+  socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-  bzero(&servaddr, sizeof(servaddr));
-  servaddr.sin_family = AF_INET;
-  servaddr.sin_port = htons(62333);
+  struct sockaddr_in server_addr;
+  bzero(&server_addr, sizeof(server_addr));
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(SERV_PORT);
+  inet_pton(AF_INET, argv[1], &server_addr.sin_addr);
 
-  inet_pton(AF_INET, argv[1], &servaddr.sin_addr);
-
-  cout << "ip " << argv[1] << endl;
-
-  int connect_rt = connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
-  if (connect_rt < 0) {
-    cout << "connect failed " << connect_rt << endl;
-  } else {
-    cout << "connect succeed" << endl;
+  socklen_t server_len = sizeof(server_addr);
+  int connect_rt = connect(socket_fd, (struct sockaddr *) &server_addr, server_len);
+  if (connect_rt < 0){
+    perror("connect failed");
+    exit(EXIT_FAILURE);
   }
 
-  send_data(sockfd);
+  char send_line[MAXLINE], recv_line[MAXLINE + 1];
+  int n;
 
-  exit(0);
+  fd_set readmask;
+  fd_set allreads;
+
+  FD_ZERO(&allreads);
+  FD_SET(0, &allreads);
+  FD_SET(socket_fd, &allreads);
+  for (;;) {
+    readmask = allreads;
+    int rc = select(socket_fd + 1, &readmask, NULL, NULL, NULL);
+    if (rc < 0) {
+      perror("select failed");
+      exit(EXIT_FAILURE);
+    }
+
+    if (FD_ISSET(socket_fd, &readmask)) {
+      n = read(socket_fd, recv_line, MAXLINE);
+      if (n < 0) {
+        perror("read error");
+        exit(EXIT_FAILURE);
+      } else if (n == 0) {
+        perror("server terminated \n");
+         exit(EXIT_FAILURE);
+      }
+
+      recv_line[n] = 0;
+      fputs(recv_line, stdout);
+      fputs("\n", stdout);
+    }
+
+    if (FD_ISSET(0, &readmask)) {
+      if (fgets(send_line, MAXLINE, stdin) != NULL) {
+        if (strncmp(send_line, "shutdown", 8) == 0) {
+          FD_CLR(0, &allreads);
+          if (shutdown(socket_fd, 1)) {
+            perror("shutdown failed");
+            exit(EXIT_FAILURE);
+          }
+        } else if (strncmp(send_line, "close", 5) == 0) {
+          FD_CLR(0, &allreads);
+          if (close(socket_fd)) {
+            perror("close failed");
+            exit(EXIT_FAILURE);
+          }
+          sleep(6);
+          exit(0);
+        } else {
+          int i = strlen(send_line);
+          if (send_line[i - 1] == '\n') {
+            send_line[i-1] = 0;
+          }
+
+          printf("now sending %s\n", send_line);
+          size_t rt = write(socket_fd, send_line, strlen(send_line));
+          if (rt < 0) {
+            perror("write failed");
+            exit(EXIT_FAILURE);
+          }
+          printf("send bytes: %zu \n", rt);
+        }
+      }
+    }
+  }
 }
