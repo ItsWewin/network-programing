@@ -9,60 +9,103 @@
 #include <string.h>
 using namespace std;
 
-#define MESSAGE_SIZE 102400
-#define SERV_PORT 63323
+typedef struct {
+  u_int32_t type;
+  char data[1024];
+} messageObject;
+
+#define MSG_PING 1
+#define MSG_PONG 2
+#define MSG_TYPE1 11
+#define MSG_TYPE2 21
+
+#define LISTENQ 1024
+#define BUFFER_SIZE 4096
 #define MAXLINE 4096
+#define SERV_PORT 63330
+
+#define MESSAGE_SIZE 102400
+#define KEEP_ALIVE_TIME 10
+#define KEEP_ALIVE_PROBETIMES 3
+#define KEEP_ALIVE_INTERVAL 3;
+
+static int count;
 
 int main(int argc, char **argv) {
   if (argc != 2) {
-    perror("usage: unixdateclient <local_path>");
+    perror("usage: tcpclient <IPaddress>");
     exit(EXIT_FAILURE);
   }
 
-  int sockfd;
-  struct sockaddr_un client_addr, server_addr;
+  int socket_fd;
+  socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-  sockfd = socket(AF_LOCAL, SOCK_DGRAM, 0);
-  if (sockfd < 0) {
-    perror("create socket failed");
-    exit(EXIT_FAILURE);
-  }
-
-  bzero(&client_addr, sizeof(client_addr));
-  client_addr.sun_family = AF_LOCAL;
-  strcpy(client_addr.sun_path, tmpnam(NULL));
-
-  if (::bind(sockfd, (struct sockaddr *) &client_addr, sizeof(client_addr)) < 0) {
-    perror("bind failed");
-  }
-
+  struct sockaddr_in server_addr;
   bzero(&server_addr, sizeof(server_addr));
-  server_addr.sun_family = AF_LOCAL;
-  strcpy(server_addr.sun_path, argv[1]);
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(SERV_PORT);
+  inet_pton(AF_INET, argv[1], &server_addr.sin_addr);
 
-  char send_line[MAXLINE];
-  bzero(send_line, MAXLINE);
-  char recv_line[MAXLINE];
-
-  while(fgets(send_line, MAXLINE, stdin) != NULL) {
-    int i = strlen(send_line);
-    if (send_line[i - 1] == '\n') {
-      send_line[i - 1] = 0;
-    }
-
-    size_t nbytes = strlen(send_line);
-    printf("now sending %s \n", send_line);
-
-    if (sendto(sockfd, send_line, nbytes, 0, (struct sockaddr *) &server_addr, sizeof(server_addr)) != nbytes) {
-      perror("sendto error");
-    }
-
-    int n = recvfrom(sockfd, recv_line, MAXLINE, 0, NULL, NULL);
-    recv_line[n] = 0;
-
-    fputs(recv_line, stdout);
-    fputs("\n", stdout);
+  socklen_t server_len = sizeof(server_addr);
+  int connect_rt = connect(socket_fd, (struct sockaddr *) &server_addr, server_len);
+  if (connect_rt < 0) {
+    perror("connect failed");
+    exit(EXIT_FAILURE);
   }
 
-  exit(0);
+  char recv_line[MAXLINE + 1];
+  int n;
+
+  fd_set readmask;
+  fd_set allreads;
+
+  struct timeval tv;
+  int heartbeats = 0;
+
+  tv.tv_sec = KEEP_ALIVE_TIME;
+  tv.tv_usec = 0;
+
+  messageObject messageObject;
+  
+  FD_ZERO(&allreads);
+  FD_SET(socket_fd, &allreads);
+  for (;;) {
+    readmask = allreads;
+    int rc = select(socket_fd + 1, &readmask, NULL, NULL, &tv);
+    if (rc < 0) {
+      perror("select failed");
+      exit(EXIT_FAILURE);
+    }
+
+    if (rc == 0) {
+      if (++heartbeats > KEEP_ALIVE_PROBETIMES) {
+        perror("connection dead\n");
+        exit(EXIT_FAILURE);
+      }
+
+      printf("sending heartbeat #%d\n", heartbeats);
+      messageObject.type = htonl(MSG_PING);
+      rc = send(socket_fd, (char *) &messageObject, sizeof(messageObject), 0);
+      if (rc < 0) {
+        perror("send failure");
+        exit(EXIT_FAILURE);
+      }
+      tv.tv_sec = KEEP_ALIVE_INTERVAL;
+      continue;
+    }
+    if (FD_ISSET(socket_fd, &readmask)) {
+      n = read(socket_fd, recv_line, MAXLINE);
+      if (n < 0) {
+        perror("read error");
+        exit(EXIT_FAILURE);
+      } else if (n == 0) {
+        perror("server terminated \n");
+        exit(EXIT_FAILURE);
+      }
+
+      printf("received heartbeat, make heartbeats to 0 \n");
+      heartbeats = 0;
+      tv.tv_sec = KEEP_ALIVE_TIME;
+    }
+  }
 }

@@ -5,61 +5,102 @@
 #include <sys/socket.h> 
 #include <sys/un.h>
 #include <string.h>
+#include <netinet/in.h> 
+
 using namespace std;
+
+typedef struct {
+  u_int32_t type;
+  char data[1024];
+} messageObject;
+
+#define MSG_PING 1
+#define MSG_PONG 2
+#define MSG_TYPE1 11
+#define MSG_TYPE2 21
 
 #define LISTENQ 1024
 #define BUFFER_SIZE 4096
 #define MAXLINE 4096
+#define SERV_PORT 63330
+
+static int count;
 
 int main(int argc, char **argv) {
   if (argc != 2) {
-    perror("unage: unixdateserver <local_path>");
+    perror("usage: tcpclient");
     exit(EXIT_FAILURE);
   }
 
-  int socket_fd;
-  socket_fd = socket(AF_LOCAL, SOCK_DGRAM, 0);
-  if (socket_fd < 0) {
-    perror("socket create failed");
+  int sleepingTime = atoi(argv[1]);
+
+  int listenfd;
+  listenfd = socket(AF_INET, SOCK_STREAM, 0);
+
+  struct sockaddr_in server_addr;
+  bzero(&server_addr, sizeof(server_addr));
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  server_addr.sin_port = htons(SERV_PORT);
+
+  int rt1 = ::bind(listenfd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+  if (rt1 < 0) {
+    perror("bind failed");
     exit(EXIT_FAILURE);
   }
 
-  struct sockaddr_un servaddr;
-  char *local_path = argv[1];
-  unlink(local_path);
-  bzero(&servaddr, sizeof(servaddr));
-  servaddr.sun_family = AF_LOCAL;
-  strcpy(servaddr.sun_path, local_path);
-
-  if (::bind(socket_fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
-    perror("build failed");
+  int rt2 = listen(listenfd, LISTENQ);
+  if (rt2 < 0) {
+    perror("listen failed");
     exit(EXIT_FAILURE);
   }
 
-  char buf[BUFFER_SIZE];
-  struct sockaddr_un client_addr;
+  int connfd;
+  struct sockaddr_in client_addr;
   socklen_t client_len = sizeof(client_addr);
 
-  while (1) {
-    bzero(buf, sizeof(buf));
-    if (recvfrom(socket_fd, buf, BUFFER_SIZE, 0, (struct sockaddr *) &client_addr, &client_len) == 0) {
-      printf("client quit");
-      break;
-    }
-
-    printf("Recevie: %s\n", buf);
-
-    char send_line[MAXLINE];
-    bzero(send_line, MAXLINE);
-    printf(send_line, "Hi: %s", buf);
-
-    size_t nbytes = strlen(send_line);
-    if (sendto(socket_fd, send_line, nbytes, 0, (struct sockaddr *) &client_addr, client_len) != nbytes) {
-      perror("sendto error");
-      exit(EXIT_FAILURE);
-    }
+  if ((connfd = accept(listenfd, (struct sockaddr *) &client_addr, &client_len)) < 0) {
+    perror("bind failed");
+    exit(EXIT_FAILURE);
   }
 
-  close(socket_fd);
-  exit(0);
+  messageObject messages;
+  ::count = 0;
+
+  for (;;) {
+    int n = read(connfd, (char *) &messages, sizeof(messageObject));
+    if (n < 0) {
+      perror("error read");
+      exit(EXIT_FAILURE);
+    } else if (n == 0) {
+      perror("client closed");
+      exit(EXIT_FAILURE);
+    }
+
+    printf("received: %d bytes\n", n);
+    ::count ++;
+
+    switch (ntohl(messages.type))
+    {
+    case MSG_TYPE1:
+      printf("process MSG_TYPE1 \n");
+      break;
+    case MSG_TYPE2:
+      printf("process MSG_TYPE2 \n");
+      break;
+    case MSG_PING: {
+      messageObject pong_message;
+      pong_message.type = MSG_PONG;
+      sleep(sleepingTime);
+      ssize_t rc = send(connfd, (char *) &pong_message, sizeof(pong_message), 0);
+      if (rc < 0) {
+        perror("send failure");
+      }
+      break; 
+    }
+    default:
+      perror("unknown message type");
+      break;
+    }
+  }
 }

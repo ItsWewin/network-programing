@@ -5,3 +5,4 @@ server/.vscode
 client/build
 server/build
 build
+.idea
