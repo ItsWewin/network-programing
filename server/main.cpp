@@ -24,8 +24,6 @@ typedef struct {
 #define MAXLINE 4096
 #define SERV_PORT 63330
 
-static int count;
-
 int main(int argc, char **argv) {
   if (argc != 2) {
     perror("usage: tcpclient");
@@ -65,7 +63,6 @@ int main(int argc, char **argv) {
   }
 
   messageObject messages;
-  ::count = 0;
 
   for (;;) {
     int n = read(connfd, (char *) &messages, sizeof(messageObject));
@@ -77,30 +74,6 @@ int main(int argc, char **argv) {
       exit(EXIT_FAILURE);
     }
 
-    printf("received: %d bytes\n", n);
-    ::count ++;
-
-    switch (ntohl(messages.type))
-    {
-    case MSG_TYPE1:
-      printf("process MSG_TYPE1 \n");
-      break;
-    case MSG_TYPE2:
-      printf("process MSG_TYPE2 \n");
-      break;
-    case MSG_PING: {
-      messageObject pong_message;
-      pong_message.type = MSG_PONG;
-      sleep(sleepingTime);
-      ssize_t rc = send(connfd, (char *) &pong_message, sizeof(pong_message), 0);
-      if (rc < 0) {
-        perror("send failure");
-      }
-      break; 
-    }
-    default:
-      perror("unknown message type");
-      break;
-    }
+    printf("received: %s", messages.data);
   }
 }
